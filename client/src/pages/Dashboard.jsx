@@ -191,18 +191,20 @@ const Dashboard = () => {
             <motion.button
               whileHover={{ scale: 1.02, y: -3 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/rooms')}
               className="bg-gradient-to-r from-orange-400 via-pink-400 to-purple-400 text-white font-bold py-4 px-6 rounded-full hover:from-orange-500 hover:to-purple-500 transition-all shadow-lg flex items-center gap-3 justify-center text-sm sm:text-base"
             >
               <FileCode className="w-5 h-5 sm:w-6 sm:h-6" />
-              Create New Project 🎨
+              My Rooms 🎨
             </motion.button>
             <motion.button
               whileHover={{ scale: 1.02, y: -3 }}
               whileTap={{ scale: 0.98 }}
+              onClick={() => navigate('/rooms')}
               className="bg-white text-gray-700 font-bold py-4 px-6 rounded-full transition shadow-lg border-2 border-gray-200 hover:border-pink-300 flex items-center gap-3 justify-center text-sm sm:text-base"
             >
               <Users className="w-5 h-5 sm:w-6 sm:h-6" />
-              Join Existing Project 👥
+              Join Room 👥
             </motion.button>
           </div>
         </motion.div>
