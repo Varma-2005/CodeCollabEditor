@@ -45,6 +45,8 @@ router.post('/', protect, asyncHandler(async (req, res) => {
 // @desc    Get all rooms (public or user's rooms)
 // @access  Private
 router.get('/', protect, asyncHandler(async (req, res) => {
+  console.log('🔍 Fetching rooms for user:', req.user._id);
+  
   const rooms = await Room.find({
     $or: [
       { isPrivate: false },
@@ -55,6 +57,8 @@ router.get('/', protect, asyncHandler(async (req, res) => {
     .populate('creator', 'username email')
     .populate('members.user', 'username email')
     .sort({ createdAt: -1 });
+
+  console.log('📦 Found rooms:', rooms.length);
 
   res.json({
     success: true,
@@ -68,7 +72,9 @@ router.get('/', protect, asyncHandler(async (req, res) => {
 router.get('/:id', protect, asyncHandler(async (req, res) => {
   const room = await Room.findById(req.params.id)
     .populate('creator', 'username email')
-    .populate('members.user', 'username email');
+    .populate('members.user', 'username email')
+    .populate('messages.user', 'username')
+    .populate('lastCodeUpdate.by', 'username');
 
   if (!room) {
     res.status(404);
@@ -81,29 +87,74 @@ router.get('/:id', protect, asyncHandler(async (req, res) => {
   });
 }));
 
-// @route   GET /api/rooms/code/:roomCode
-// @desc    Get room by room code
+// @route   GET /api/rooms/:id/code
+// @desc    Get room code
 // @access  Private
-router.get('/code/:roomCode', protect, asyncHandler(async (req, res) => {
-  const room = await Room.findOne({ roomCode: req.params.roomCode.toUpperCase() })
-    .populate('creator', 'username email')
-    .populate('members.user', 'username email');
+router.get('/:id/code', protect, asyncHandler(async (req, res) => {
+  const room = await Room.findById(req.params.id).select('code language lastCodeUpdate');
 
   if (!room) {
     res.status(404);
     throw new Error('Room not found');
   }
 
+  // Check if user is a member
+  const isMember = room.members.some(
+    member => member.user.toString() === req.user._id.toString()
+  );
+
+  if (!isMember && room.creator.toString() !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error('Not authorized to access this room');
+  }
+
   res.json({
     success: true,
-    data: room
+    data: {
+      code: room.code,
+      language: room.language,
+      lastUpdate: room.lastCodeUpdate
+    }
   });
 }));
 
-// @route   PUT /api/rooms/:id
-// @desc    Update room
+// @route   GET /api/rooms/:id/messages
+// @desc    Get room messages
 // @access  Private
-router.put('/:id', protect, asyncHandler(async (req, res) => {
+router.get('/:id/messages', protect, asyncHandler(async (req, res) => {
+  const limit = parseInt(req.query.limit) || 100;
+  const skip = parseInt(req.query.skip) || 0;
+
+  const room = await Room.findById(req.params.id)
+    .select('messages')
+    .populate('messages.user', 'username');
+
+  if (!room) {
+    res.status(404);
+    throw new Error('Room not found');
+  }
+
+  // Get messages with pagination
+  const messages = room.messages
+    .slice(skip, skip + limit)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  res.json({
+    success: true,
+    data: {
+      messages,
+      total: room.messages.length,
+      hasMore: room.messages.length > skip + limit
+    }
+  });
+}));
+
+// @route   PUT /api/rooms/:id/code
+// @desc    Update room code
+// @access  Private
+router.put('/:id/code', protect, asyncHandler(async (req, res) => {
+  const { code, language } = req.body;
+
   const room = await Room.findById(req.params.id);
 
   if (!room) {
@@ -111,29 +162,33 @@ router.put('/:id', protect, asyncHandler(async (req, res) => {
     throw new Error('Room not found');
   }
 
-  // Check if user is the creator
-  if (room.creator.toString() !== req.user._id.toString()) {
+  // Check if user is a member
+  const isMember = room.members.some(
+    member => member.user.toString() === req.user._id.toString()
+  );
+
+  if (!isMember && room.creator.toString() !== req.user._id.toString()) {
     res.status(403);
-    throw new Error('Not authorized to update this room');
+    throw new Error('Not authorized to update code in this room');
   }
 
-  const { name, description, maxMembers, isPrivate, password } = req.body;
+  room.code = code;
+  room.language = language || room.language;
+  room.lastCodeUpdate = {
+    by: req.user._id,
+    at: new Date()
+  };
 
-  room.name = name || room.name;
-  room.description = description !== undefined ? description : room.description;
-  room.maxMembers = maxMembers || room.maxMembers;
-  room.isPrivate = isPrivate !== undefined ? isPrivate : room.isPrivate;
-  room.password = password !== undefined ? password : room.password;
-
-  const updatedRoom = await room.save();
-  const populatedRoom = await Room.findById(updatedRoom._id)
-    .populate('creator', 'username email')
-    .populate('members.user', 'username email');
+  await room.save();
 
   res.json({
     success: true,
-    message: 'Room updated successfully',
-    data: populatedRoom
+    message: 'Code updated successfully',
+    data: {
+      code: room.code,
+      language: room.language,
+      lastUpdate: room.lastCodeUpdate
+    }
   });
 }));
 

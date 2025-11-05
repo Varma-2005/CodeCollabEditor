@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { LogOut, User, Mail, Calendar, Code2, FileCode, Users, Settings, Sparkles, TrendingUp } from 'lucide-react';
+import { LogOut, User, Mail, Code2, FileCode, Users, Settings, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,12 +11,6 @@ const Dashboard = () => {
     logout();
     navigate('/signin');
   };
-
-  const stats = [
-    { icon: FileCode, label: 'Projects', value: '0', color: 'from-cyan-400 to-blue-400', emoji: '📁' },
-    { icon: Users, label: 'Collaborators', value: '0', color: 'from-pink-400 to-purple-400', emoji: '👥' },
-    { icon: Code2, label: 'Code Files', value: '0', color: 'from-green-400 to-emerald-400', emoji: '📄' },
-  ];
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-orange-50 via-pink-50 to-cyan-50 relative overflow-hidden">
@@ -143,45 +137,12 @@ const Dashboard = () => {
           </div>
         </motion.div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          {stats.map((stat, index) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 + index * 0.1 }}
-              whileHover={{ scale: 1.05, y: -5 }}
-              className="bg-white rounded-3xl p-6 shadow-xl border-2 border-gray-100 relative overflow-hidden group"
-            >
-              <div className="flex items-center justify-between mb-4">
-                <motion.div 
-                  whileHover={{ rotate: [0, -10, 10, 0], scale: 1.1 }}
-                  transition={{ duration: 0.5 }}
-                  className="relative"
-                >
-                  <div className={`bg-gradient-to-r ${stat.color} p-3 rounded-2xl shadow-lg`}>
-                    <stat.icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                  </div>
-                  <span className="absolute -top-2 -right-2 text-2xl">{stat.emoji}</span>
-                </motion.div>
-                <span className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-orange-500 to-pink-500 bg-clip-text text-transparent">{stat.value}</span>
-              </div>
-              <p className="text-gray-700 text-sm sm:text-base font-semibold">{stat.label}</p>
-              <div className="flex items-center gap-1 mt-2 text-xs text-green-600 font-medium">
-                <TrendingUp className="w-3 h-3" />
-                <span>+0% from last week</span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
         {/* Quick Actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border-4 border-gray-100 mb-6 sm:mb-8"
+          transition={{ delay: 0.3 }}
+          className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border-4 border-gray-100"
         >
           <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-yellow-500" />
@@ -206,30 +167,6 @@ const Dashboard = () => {
               <Users className="w-5 h-5 sm:w-6 sm:h-6" />
               Join Room 👥
             </motion.button>
-          </div>
-        </motion.div>
-
-        {/* Recent Activity */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-          className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border-4 border-gray-100"
-        >
-          <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6">Recent Activity</h3>
-          <div className="text-center py-12">
-            <motion.div
-              animate={{ 
-                scale: [1, 1.1, 1],
-                rotate: [0, 5, -5, 0]
-              }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="text-7xl mb-4"
-            >
-              📅
-            </motion.div>
-            <p className="text-gray-600 text-sm sm:text-base font-medium">No recent activity yet</p>
-            <p className="text-gray-500 text-xs sm:text-sm mt-2">Start coding to see your activity here! ✨</p>
           </div>
         </motion.div>
       </main>

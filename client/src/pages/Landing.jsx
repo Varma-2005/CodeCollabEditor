@@ -330,40 +330,6 @@ const Landing = () => {
                 <ArrowRight className="w-5 h-5" />
               </motion.button>
             </Link>
-            <motion.button
-              whileHover={{ scale: 1.05, y: -3 }}
-              whileTap={{ scale: 0.95 }}
-              className="w-full sm:w-auto bg-white text-gray-700 px-8 py-4 rounded-full font-bold text-lg shadow-lg border-2 border-gray-200 hover:border-pink-300 transition"
-            >
-              Watch Demo
-            </motion.button>
-          </motion.div>
-
-          {/* Stats */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-            className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8 max-w-4xl mx-auto"
-          >
-            {[
-              { value: '10K+', label: 'Active Users' },
-              { value: '50K+', label: 'Projects Created' },
-              { value: '99.9%', label: 'Uptime' },
-              { value: '24/7', label: 'Support' },
-            ].map((stat, index) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.7 + index * 0.1 }}
-                whileHover={{ scale: 1.05, y: -5 }}
-                className="bg-white/80 backdrop-blur-sm rounded-3xl p-4 sm:p-6 shadow-lg border border-gray-200"
-              >
-                <div className="text-2xl sm:text-3xl md:text-4xl font-bold bg-gradient-to-r from-orange-500 to-pink-500 bg-clip-text text-transparent mb-2">{stat.value}</div>
-                <div className="text-xs sm:text-sm text-gray-600 font-medium">{stat.label}</div>
-              </motion.div>
-            ))}
           </motion.div>
         </div>
       </section>

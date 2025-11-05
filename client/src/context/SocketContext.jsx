@@ -156,6 +156,38 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
+  const requestCodeExecution = (roomId, code, language, stdin, callback) => {
+    if (socketRef.current?.connected) {
+      console.log('📨 Requesting code execution approval');
+      socketRef.current.emit('request-code-execution', { roomId, code, language, stdin }, callback);
+    } else {
+      console.warn('⚠️ Socket not connected');
+      if (callback) {
+        callback({ success: false, message: 'Socket not connected' });
+      }
+    }
+  };
+
+  const respondToCodeExecution = (roomId, approved, callback) => {
+    if (socketRef.current?.connected) {
+      console.log('📨 Responding to code execution:', approved ? 'Approved' : 'Rejected');
+      socketRef.current.emit('code-execution-response', { roomId, approved }, callback);
+    }
+  };
+
+  const cancelCodeExecution = (roomId, callback) => {
+    if (socketRef.current?.connected) {
+      console.log('📨 Cancelling code execution request');
+      socketRef.current.emit('cancel-code-execution', { roomId }, callback);
+    }
+  };
+
+  const markCodeExecutionCompleted = (roomId) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('code-execution-completed', { roomId });
+    }
+  };
+
   return (
     <SocketContext.Provider value={{
       socket,
@@ -165,7 +197,11 @@ export const SocketProvider = ({ children }) => {
       sendMessage,
       sendCodeChange,
       sendCursorMove,
-      endRoom
+      endRoom,
+      requestCodeExecution,
+      respondToCodeExecution,
+      cancelCodeExecution,
+      markCodeExecutionCompleted
     }}>
       {children}
     </SocketContext.Provider>

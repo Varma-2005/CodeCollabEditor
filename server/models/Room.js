@@ -39,6 +39,74 @@ const roomSchema = new mongoose.Schema({
     username: String,
     joinedAt: Date
   }],
+  // Store room code content
+  code: {
+    type: String,
+    default: '// Start coding here...\n'
+  },
+  language: {
+    type: String,
+    default: 'javascript'
+  },
+  lastCodeUpdate: {
+    by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    at: Date
+  },
+  // Store chat messages
+  messages: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    username: {
+      type: String,
+      required: true
+    },
+    message: {
+      type: String,
+      required: true,
+      maxlength: [2000, 'Message cannot exceed 2000 characters']
+    },
+    type: {
+      type: String,
+      enum: ['message', 'system'],
+      default: 'message'
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  // Store code execution requests
+  codeExecutionRequest: {
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    requestedByUsername: String,
+    code: String,
+    language: String,
+    stdin: String,
+    timestamp: Date,
+    approvals: [{
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      username: String,
+      approved: Boolean,
+      timestamp: Date
+    }],
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', 'executed'],
+      default: 'pending'
+    }
+  },
   maxMembers: {
     type: Number,
     default: 10,
@@ -72,5 +140,8 @@ roomSchema.statics.generateRoomCode = async function() {
 
   return code;
 };
+
+// Index for faster message queries
+roomSchema.index({ 'messages.timestamp': -1 });
 
 module.exports = mongoose.model('Room', roomSchema);

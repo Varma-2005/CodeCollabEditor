@@ -6,10 +6,18 @@ const http = require('http');
 const { Server } = require('socket.io');
 const authRoutes = require('./routes/authRoutes');
 const roomRoutes = require('./routes/roomRoutes');
+const compilerRoutes = require('./routes/compilerRoutes');
 const socketHandlers = require('./socket/socketHandlers');
 
 // Load environment variables
 dotenv.config();
+
+// Verify critical environment variables on startup
+console.log('🔍 Environment Variables Check:');
+console.log('  DB_URL:', process.env.DB_URL ? '✅ Configured' : '❌ Missing');
+console.log('  JWT_SECRET_KEY:', process.env.JWT_SECRET_KEY ? '✅ Configured' : '❌ Missing');
+console.log('  RAPIDAPI_KEY:', process.env.RAPIDAPI_KEY ? `✅ ${process.env.RAPIDAPI_KEY.substring(0, 10)}...` : '❌ Missing');
+console.log('  RAPIDAPI_HOST:', process.env.RAPIDAPI_HOST || 'judge0-ce.p.rapidapi.com');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,6 +44,7 @@ mongoose.connect(process.env.DB_URL)
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
+app.use('/api/compiler', compilerRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

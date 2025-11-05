@@ -14,7 +14,7 @@ const RoomEditor = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { socket, connected, joinRoom, leaveRoom, sendMessage, sendCodeChange, endRoom } = useSocket();
+  const { socket, connected, joinRoom, leaveRoom, sendMessage, sendCodeChange, endRoom, requestCodeExecution, respondToCodeExecution, cancelCodeExecution, markCodeExecutionCompleted } = useSocket();
   
   const [room, setRoom] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +38,12 @@ const RoomEditor = () => {
   const [stdin, setStdin] = useState('');
   const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   
+  // Code execution approval states
+  const [executionRequest, setExecutionRequest] = useState(null);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [approvalProgress, setApprovalProgress] = useState(null);
+  const [waitingForApproval, setWaitingForApproval] = useState(false);
+
   const codeEditorRef = useRef(null);
   const chatEndRef = useRef(null);
   const hasJoinedRef = useRef(false);
@@ -177,11 +183,57 @@ const RoomEditor = () => {
       navigate('/rooms');
     };
 
+    // Listen for code execution requests
+    const handleCodeExecutionRequested = (data) => {
+      console.log('🔔 Code execution requested by:', data.requestedByUsername);
+      setExecutionRequest(data);
+      setShowApprovalModal(true);
+    };
+
+    // Listen for code execution approval
+    const handleCodeExecutionApproved = (data) => {
+      console.log('✅ Code execution approved');
+      
+      // If current user is the requester, execute the code
+      if (data.requestedBy.toString() === user?.id) {
+        setWaitingForApproval(false);
+        executeCodeDirectly(data.code, data.language, data.stdin);
+      }
+    };
+
+    // Listen for code execution rejection
+    const handleCodeExecutionRejected = (data) => {
+      console.log('❌ Code execution rejected by:', data.rejectedBy);
+      setWaitingForApproval(false);
+      setApprovalProgress(null);
+      alert(`Code execution was rejected by ${data.rejectedBy}`);
+    };
+
+    // Listen for approval progress
+    const handleApprovalProgress = (data) => {
+      console.log('📊 Approval progress:', data);
+      setApprovalProgress(data);
+    };
+
+    // Listen for execution cancelled
+    const handleCodeExecutionCancelled = (data) => {
+      console.log('🚫 Code execution cancelled by:', data.cancelledBy);
+      setShowApprovalModal(false);
+      setExecutionRequest(null);
+      setWaitingForApproval(false);
+      setApprovalProgress(null);
+    };
+
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
     socket.on('receive-message', handleReceiveMessage);
     socket.on('code-update', handleCodeUpdate);
     socket.on('room-ended', handleRoomEnded);
+    socket.on('code-execution-requested', handleCodeExecutionRequested);
+    socket.on('code-execution-approved', handleCodeExecutionApproved);
+    socket.on('code-execution-rejected', handleCodeExecutionRejected);
+    socket.on('code-execution-approval-progress', handleApprovalProgress);
+    socket.on('code-execution-cancelled', handleCodeExecutionCancelled);
 
     return () => {
       socket.off('user-joined', handleUserJoined);
@@ -189,8 +241,13 @@ const RoomEditor = () => {
       socket.off('receive-message', handleReceiveMessage);
       socket.off('code-update', handleCodeUpdate);
       socket.off('room-ended', handleRoomEnded);
+      socket.off('code-execution-requested', handleCodeExecutionRequested);
+      socket.off('code-execution-approved', handleCodeExecutionApproved);
+      socket.off('code-execution-rejected', handleCodeExecutionRejected);
+      socket.off('code-execution-approval-progress', handleApprovalProgress);
+      socket.off('code-execution-cancelled', handleCodeExecutionCancelled);
     };
-  }, [socket, navigate]);
+  }, [socket, navigate, user]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -218,19 +275,14 @@ const RoomEditor = () => {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const handleRunCode = async () => {
-    if (!code.trim()) {
-      alert('Please write some code first!');
-      return;
-    }
-
+  const executeCodeDirectly = async (codeToExecute, lang, input) => {
     setIsExecuting(true);
     setShowOutput(true);
     setOutput('Executing code...\n');
     setExecutionError(null);
 
     try {
-      const result = await compilerAPI.executeCode(code, selectedLanguage, stdin);
+      const result = await compilerAPI.executeCode(codeToExecute, lang, input);
       
       if (result.success) {
         const { output: codeOutput, statusCode, memory, cpuTime, error } = result.result;
@@ -250,6 +302,9 @@ const RoomEditor = () => {
         }
         
         setOutput(formattedOutput);
+        
+        // Mark execution as completed
+        markCodeExecutionCompleted(roomId);
       } else {
         setOutput(`❌ Execution Failed:\n${result.error || 'Unknown error'}`);
         setExecutionError(result.error);
@@ -261,6 +316,63 @@ const RoomEditor = () => {
     } finally {
       setIsExecuting(false);
     }
+  };
+
+  const handleRunCode = async () => {
+    if (!code.trim()) {
+      alert('Please write some code first!');
+      return;
+    }
+
+    // Request approval from other participants
+    setWaitingForApproval(true);
+    
+    requestCodeExecution(roomId, code, selectedLanguage, stdin, (response) => {
+      if (response.success) {
+        if (response.executeDirectly) {
+          // No other users, execute directly
+          setWaitingForApproval(false);
+          executeCodeDirectly(code, selectedLanguage, stdin);
+        } else {
+          // Waiting for approval
+          console.log(`⏳ Waiting for approval from ${response.totalUsers} user(s)`);
+          setApprovalProgress({
+            approvedCount: 0,
+            totalUsers: response.totalUsers
+          });
+        }
+      } else {
+        setWaitingForApproval(false);
+        alert(response.message || 'Failed to request code execution');
+      }
+    });
+  };
+
+  const handleApproveExecution = () => {
+    respondToCodeExecution(roomId, true, (response) => {
+      if (response.success) {
+        setShowApprovalModal(false);
+        setExecutionRequest(null);
+      }
+    });
+  };
+
+  const handleRejectExecution = () => {
+    respondToCodeExecution(roomId, false, (response) => {
+      if (response.success) {
+        setShowApprovalModal(false);
+        setExecutionRequest(null);
+      }
+    });
+  };
+
+  const handleCancelRequest = () => {
+    cancelCodeExecution(roomId, (response) => {
+      if (response.success) {
+        setWaitingForApproval(false);
+        setApprovalProgress(null);
+      }
+    });
   };
 
   const handleLeaveRoom = async () => {
@@ -648,6 +760,86 @@ const RoomEditor = () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Code Execution Approval Modal */}
+      <AnimatePresence>
+        {showApprovalModal && executionRequest && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-4 border-orange-200"
+            >
+              <div className="text-center">
+                <div className="bg-gradient-to-r from-orange-400 to-pink-400 text-white p-4 rounded-2xl w-fit mx-auto mb-4">
+                  <Play className="w-8 h-8" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">Code Execution Request</h2>
+                <p className="text-gray-600 mb-6">
+                  <span className="font-semibold text-pink-600">{executionRequest.requestedByUsername}</span> wants to run the code
+                </p>
+                <div className="bg-gray-100 rounded-xl p-3 mb-6 text-left">
+                  <p className="text-sm text-gray-600">Language: <span className="font-semibold text-gray-800 capitalize">{executionRequest.language}</span></p>
+                </div>
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleRejectExecution}
+                    className="flex-1 bg-red-100 hover:bg-red-200 text-red-600 px-6 py-3 rounded-full font-bold transition"
+                  >
+                    Reject
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleApproveExecution}
+                    className="flex-1 bg-gradient-to-r from-green-400 to-emerald-400 text-white px-6 py-3 rounded-full font-bold shadow-lg"
+                  >
+                    Approve
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Waiting for Approval Indicator */}
+      <AnimatePresence>
+        {waitingForApproval && approvalProgress && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 right-4 bg-white rounded-2xl shadow-2xl p-4 border-2 border-orange-200 z-40"
+          >
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-5 h-5 text-orange-500 animate-spin" />
+              <div>
+                <p className="font-semibold text-gray-800">Waiting for Approval</p>
+                <p className="text-sm text-gray-600">
+                  {approvalProgress.approvedCount}/{approvalProgress.totalUsers} approved
+                </p>
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={handleCancelRequest}
+                className="ml-2 p-2 hover:bg-red-100 rounded-lg text-red-500"
+              >
+                <X className="w-4 h-4" />
+              </motion.button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
