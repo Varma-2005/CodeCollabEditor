@@ -192,6 +192,50 @@ const socketHandlers = (io) => {
       });
     });
 
+    // End room (creator only)
+    socket.on('end-room', async ({ roomId }, callback) => {
+      try {
+        const room = await Room.findById(roomId);
+
+        if (!room) {
+          return callback({ success: false, message: 'Room not found' });
+        }
+
+        // Check if user is the creator
+        if (room.creator.toString() !== socket.user._id.toString()) {
+          return callback({ success: false, message: 'Only the creator can end the room' });
+        }
+
+        // Notify all users in the room that it's ending
+        io.to(roomId).emit('room-ended', {
+          message: 'The room has been ended by the creator',
+          creatorUsername: socket.user.username
+        });
+
+        // Clear all active users
+        await Room.findByIdAndUpdate(
+          roomId,
+          { $set: { activeUsers: [] } }
+        );
+
+        // Make everyone leave the socket room
+        const socketsInRoom = await io.in(roomId).fetchSockets();
+        socketsInRoom.forEach(s => {
+          s.leave(roomId);
+          if (s.currentRoom === roomId) {
+            s.currentRoom = null;
+          }
+        });
+
+        callback({ success: true, message: 'Room ended successfully' });
+
+        console.log(`🛑 Room ${room.name} ended by creator: ${socket.user.username}`);
+      } catch (error) {
+        console.error('End room error:', error);
+        callback({ success: false, message: error.message });
+      }
+    });
+
     // Disconnect
     socket.on('disconnect', async (reason) => {
       try {

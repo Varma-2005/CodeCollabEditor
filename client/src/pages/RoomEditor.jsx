@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Users, Send, Code2, Play, Copy, Check,
-  User as UserIcon, MessageCircle, Settings, Loader2, LogOut
+  User as UserIcon, MessageCircle, Settings, Loader2, LogOut, XCircle
 } from 'lucide-react';
 import { roomAPI } from '../services/api';
 import { useSocket } from '../context/SocketContext';
@@ -13,7 +13,7 @@ const RoomEditor = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { socket, connected, joinRoom, leaveRoom, sendMessage, sendCodeChange } = useSocket();
+  const { socket, connected, joinRoom, leaveRoom, sendMessage, sendCodeChange, endRoom } = useSocket();
   
   const [room, setRoom] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +25,7 @@ const RoomEditor = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [joined, setJoined] = useState(false);
   const [leavingRoom, setLeavingRoom] = useState(false);
+  const [endingRoom, setEndingRoom] = useState(false);
   
   const codeEditorRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -108,16 +109,25 @@ const RoomEditor = () => {
       setCode(data.code);
     };
 
+    // Listen for room ended
+    const handleRoomEnded = (data) => {
+      console.log('🛑 Room ended:', data.message);
+      alert(`${data.message}\n\nCreator: ${data.creatorUsername}`);
+      navigate('/rooms');
+    };
+
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
     socket.on('receive-message', handleReceiveMessage);
     socket.on('code-update', handleCodeUpdate);
+    socket.on('room-ended', handleRoomEnded);
 
     return () => {
       socket.off('user-joined', handleUserJoined);
       socket.off('user-left', handleUserLeft);
       socket.off('receive-message', handleReceiveMessage);
       socket.off('code-update', handleCodeUpdate);
+      socket.off('room-ended', handleRoomEnded);
     };
   }, [socket]);
 
@@ -178,6 +188,27 @@ const RoomEditor = () => {
     }
   };
 
+  const handleEndRoom = async () => {
+    if (!window.confirm('⚠️ Are you sure you want to END this room?\n\nThis will kick out all participants and close the room session.')) return;
+
+    setEndingRoom(true);
+    try {
+      // End the room via socket
+      endRoom(roomId, (response) => {
+        if (response.success) {
+          // Navigate back to rooms page
+          navigate('/rooms');
+        } else {
+          alert(response.message || 'Failed to end room');
+          setEndingRoom(false);
+        }
+      });
+    } catch (error) {
+      alert('Failed to end room');
+      setEndingRoom(false);
+    }
+  };
+
   if (loading || !room) {
     return (
       <div className="min-h-screen w-full bg-gradient-to-br from-orange-50 via-pink-50 to-cyan-50 flex items-center justify-center">
@@ -222,6 +253,29 @@ const RoomEditor = () => {
                 </span>
               </div>
               
+              {/* End Room Button (only for creators) */}
+              {room && room.creator._id === user?.id && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleEndRoom}
+                  disabled={endingRoom}
+                  className="flex items-center gap-2 bg-orange-100 hover:bg-orange-200 text-orange-600 px-4 py-2 rounded-full font-semibold border-2 border-orange-200 disabled:opacity-50"
+                >
+                  {endingRoom ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="hidden sm:inline">Ending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-4 h-4" />
+                      <span className="hidden sm:inline">End Room</span>
+                    </>
+                  )}
+                </motion.button>
+              )}
+
               {/* Leave Room Button (only for non-creators) */}
               {room && room.creator._id !== user?.id && (
                 <motion.button

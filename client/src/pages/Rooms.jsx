@@ -112,6 +112,16 @@ const Rooms = () => {
     }
   };
 
+  const handleJoinPublicRoom = async (roomId) => {
+    try {
+      await roomAPI.joinRoom(roomId, '');
+      fetchRooms();
+      navigate(`/room/${roomId}`);
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to join room');
+    }
+  };
+
   const filteredRooms = rooms.filter(room =>
     room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     room.roomCode.toLowerCase().includes(searchQuery.toLowerCase())
@@ -225,7 +235,20 @@ const Rooms = () => {
                 transition={{ delay: index * 0.1 }}
                 whileHover={{ scale: 1.03, y: -5 }}
                 className="bg-white rounded-3xl p-6 shadow-xl border-2 border-gray-100 cursor-pointer"
-                onClick={() => navigate(`/room/${room._id}`)}
+                onClick={() => {
+                  // Check if user is already a member
+                  const isMember = room.members.some(m => m.user._id === user?.id);
+                  
+                  if (isMember) {
+                    // Already a member, go directly to room
+                    navigate(`/room/${room._id}`);
+                  } else if (!room.isPrivate) {
+                    // Public room, join automatically
+                    handleJoinPublicRoom(room._id);
+                  } else {
+                    // Private room, do nothing (let the Join button handle it)
+                  }
+                }}
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
@@ -294,7 +317,8 @@ const Rooms = () => {
                       Delete
                     </motion.button>
                   </div>
-                ) : (
+                ) : room.members.some(m => m.user._id === user?.id) ? (
+                  // User is already a member
                   <div className="pt-4 border-t-2 border-gray-100">
                     <motion.button
                       whileHover={{ scale: 1.02 }}
@@ -307,6 +331,39 @@ const Rooms = () => {
                     >
                       <LogOut className="w-4 h-4" />
                       Leave Room
+                    </motion.button>
+                  </div>
+                ) : room.isPrivate ? (
+                  // Private room, not a member - show join button that opens modal
+                  <div className="pt-4 border-t-2 border-gray-100">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={(e) => { 
+                        e.stopPropagation();
+                        setJoinCode(room.roomCode);
+                        setShowJoinModal(true);
+                      }}
+                      className="w-full bg-pink-100 text-pink-600 px-4 py-2 rounded-xl font-semibold flex items-center gap-2 justify-center"
+                    >
+                      <Lock className="w-4 h-4" />
+                      Join Private Room
+                    </motion.button>
+                  </div>
+                ) : (
+                  // Public room, not a member - show quick join button
+                  <div className="pt-4 border-t-2 border-gray-100">
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={(e) => { 
+                        e.stopPropagation();
+                        handleJoinPublicRoom(room._id);
+                      }}
+                      className="w-full bg-green-100 text-green-600 px-4 py-2 rounded-xl font-semibold flex items-center gap-2 justify-center"
+                    >
+                      <Globe className="w-4 h-4" />
+                      Join Room
                     </motion.button>
                   </div>
                 )}
@@ -430,7 +487,12 @@ const Rooms = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowJoinModal(false)}
+            onClick={() => {
+              setShowJoinModal(false);
+              setJoinCode('');
+              setJoinPassword('');
+              setError('');
+            }}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -440,8 +502,13 @@ const Rooms = () => {
               className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-4 border-gray-100"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">Join Room</h2>
-                <button onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <h2 className="text-2xl font-bold text-gray-800">Join Private Room</h2>
+                <button onClick={() => {
+                  setShowJoinModal(false);
+                  setJoinCode('');
+                  setJoinPassword('');
+                  setError('');
+                }} className="p-2 hover:bg-gray-100 rounded-lg">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -467,13 +534,14 @@ const Rooms = () => {
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 mb-2 text-sm font-semibold">Password (if private)</label>
+                  <label className="block text-gray-700 mb-2 text-sm font-semibold">Password</label>
                   <input
                     type="password"
+                    required
                     value={joinPassword}
                     onChange={(e) => setJoinPassword(e.target.value)}
                     className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-400"
-                    placeholder="Enter password if required"
+                    placeholder="Enter room password"
                   />
                 </div>
 
@@ -484,8 +552,8 @@ const Rooms = () => {
                   disabled={createLoading}
                   className="w-full bg-gradient-to-r from-orange-400 via-pink-400 to-purple-400 text-white font-bold py-3 rounded-full disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {createLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Users className="w-5 h-5" />}
-                  {createLoading ? 'Joining...' : 'Join Room'}
+                  {createLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Lock className="w-5 h-5" />}
+                  {createLoading ? 'Joining...' : 'Join Private Room'}
                 </motion.button>
               </form>
             </motion.div>

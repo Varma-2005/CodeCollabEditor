@@ -189,10 +189,10 @@ router.post('/:id/join', protect, asyncHandler(async (req, res) => {
     throw new Error('You are already a member of this room');
   }
 
-  // Check password if room is private
+  // Check password only if room is private
   if (room.isPrivate && room.password) {
     const { password } = req.body;
-    if (password !== room.password) {
+    if (!password || password !== room.password) {
       res.status(401);
       throw new Error('Incorrect password');
     }

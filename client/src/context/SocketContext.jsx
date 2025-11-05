@@ -144,6 +144,18 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
+  const endRoom = (roomId, callback) => {
+    if (socketRef.current?.connected) {
+      console.log('📨 Emitting end-room:', roomId);
+      socketRef.current.emit('end-room', { roomId }, callback);
+    } else {
+      console.warn('⚠️ Socket not connected, cannot end room');
+      if (callback) {
+        callback({ success: false, message: 'Socket not connected' });
+      }
+    }
+  };
+
   return (
     <SocketContext.Provider value={{
       socket,
@@ -152,7 +164,8 @@ export const SocketProvider = ({ children }) => {
       leaveRoom,
       sendMessage,
       sendCodeChange,
-      sendCursorMove
+      sendCursorMove,
+      endRoom
     }}>
       {children}
     </SocketContext.Provider>
