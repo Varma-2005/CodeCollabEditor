@@ -33,9 +33,22 @@ const Rooms = () => {
     fetchRooms();
   }, []);
 
+  // Add this to refresh when coming back from a room
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('🔄 Window focused, refreshing rooms...');
+      fetchRooms();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   const fetchRooms = async () => {
     try {
       const response = await roomAPI.getRooms();
+      console.log('📦 Rooms fetched:', response.data);
+      console.log('👤 Current user:', user);
       setRooms(response.data);
     } catch (error) {
       console.error('Error fetching rooms:', error);
@@ -115,7 +128,8 @@ const Rooms = () => {
   const handleJoinPublicRoom = async (roomId) => {
     try {
       await roomAPI.joinRoom(roomId, '');
-      fetchRooms();
+      // Refresh rooms list to show updated membership
+      await fetchRooms();
       navigate(`/room/${roomId}`);
     } catch (error) {
       alert(error.response?.data?.message || 'Failed to join room');
@@ -291,7 +305,7 @@ const Rooms = () => {
                 <div className="flex items-center gap-2 text-xs text-gray-500 mb-4">
                   <span>👤 {room.creator.username}</span>
                   {room.creator._id === user?.id && <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-semibold">Creator</span>}
-                  {room.creator._id !== user?.id && <span className="bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-semibold">Member</span>}
+                  {room.creator._id !== user?.id && room.members.some(m => m.user._id === user?.id) && <span className="bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-semibold">Member</span>}
                   <span>•</span>
                   <span>🟢 {room.activeUsers?.length || 0} online</span>
                 </div>

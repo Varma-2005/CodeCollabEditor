@@ -132,9 +132,9 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
-  const sendCodeChange = (roomId, code) => {
+  const sendCodeChange = (roomId, code, language) => {
     if (socketRef.current?.connected) {
-      socketRef.current.emit('code-change', { roomId, code });
+      socketRef.current.emit('code-change', { roomId, code, language });
     }
   };
 

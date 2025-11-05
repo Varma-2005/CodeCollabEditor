@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Users, Send, Code2, Play, Copy, Check,
-  User as UserIcon, MessageCircle, Settings, Loader2, LogOut, XCircle
+  MessageCircle, Loader2, LogOut, XCircle,
+  Terminal, ChevronDown, X
 } from 'lucide-react';
-import { roomAPI } from '../services/api';
+import { roomAPI, compilerAPI } from '../services/api';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -21,18 +22,51 @@ const RoomEditor = () => {
   const [activeUsers, setActiveUsers] = useState([]);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
-  const [showChat, setShowChat] = useState(true); // Always show chat by default
+  const [showChat, setShowChat] = useState(true);
   const [copiedCode, setCopiedCode] = useState(false);
   const [joined, setJoined] = useState(false);
   const [leavingRoom, setLeavingRoom] = useState(false);
   const [endingRoom, setEndingRoom] = useState(false);
   
+  // Compiler states
+  const [selectedLanguage, setSelectedLanguage] = useState('javascript');
+  const [supportedLanguages, setSupportedLanguages] = useState([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [output, setOutput] = useState('');
+  const [showOutput, setShowOutput] = useState(false);
+  const [executionError, setExecutionError] = useState(null);
+  const [stdin, setStdin] = useState('');
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
+  
   const codeEditorRef = useRef(null);
   const chatEndRef = useRef(null);
-  const hasJoinedRef = useRef(false); // Prevent duplicate joins
+  const hasJoinedRef = useRef(false);
+  const outputRef = useRef(null);
+
+  const fetchRoom = async () => {
+    try {
+      const response = await roomAPI.getRoom(roomId);
+      setRoom(response.data);
+    } catch (error) {
+      alert(error.response?.data?.message || 'Room not found');
+      navigate('/rooms');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSupportedLanguages = async () => {
+    try {
+      const response = await compilerAPI.getSupportedLanguages();
+      setSupportedLanguages(response.languages);
+    } catch (error) {
+      console.error('Error fetching languages:', error);
+    }
+  };
 
   useEffect(() => {
     fetchRoom();
+    fetchSupportedLanguages();
     
     return () => {
       // Cleanup when component unmounts
@@ -41,6 +75,7 @@ const RoomEditor = () => {
         hasJoinedRef.current = false;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
   useEffect(() => {
@@ -56,6 +91,28 @@ const RoomEditor = () => {
           setActiveUsers(response.activeUsers);
           setJoined(true);
           
+          // Load saved code from database
+          if (response.code) {
+            setCode(response.code);
+          }
+          
+          // Load saved language
+          if (response.language) {
+            setSelectedLanguage(response.language);
+          }
+          
+          // Load saved messages from database
+          if (response.messages && response.messages.length > 0) {
+            const formattedMessages = response.messages.map(msg => ({
+              userId: msg.user,
+              username: msg.username,
+              message: msg.message,
+              type: msg.type || 'message',
+              timestamp: msg.timestamp
+            }));
+            setMessages(formattedMessages);
+          }
+          
           // Add welcome message
           setMessages(prev => [...prev, {
             type: 'system',
@@ -70,6 +127,7 @@ const RoomEditor = () => {
         }
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, room, connected, joined, roomId]);
 
   useEffect(() => {
@@ -107,6 +165,9 @@ const RoomEditor = () => {
     const handleCodeUpdate = (data) => {
       console.log('📝 Code updated by:', data.username);
       setCode(data.code);
+      if (data.language) {
+        setSelectedLanguage(data.language);
+      }
     };
 
     // Listen for room ended
@@ -129,29 +190,17 @@ const RoomEditor = () => {
       socket.off('code-update', handleCodeUpdate);
       socket.off('room-ended', handleRoomEnded);
     };
-  }, [socket]);
+  }, [socket, navigate]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const fetchRoom = async () => {
-    try {
-      const response = await roomAPI.getRoom(roomId);
-      setRoom(response.data);
-    } catch (error) {
-      alert(error.response?.data?.message || 'Room not found');
-      navigate('/rooms');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCodeChange = (e) => {
     const newCode = e.target.value;
     setCode(newCode);
     if (connected) {
-      sendCodeChange(roomId, newCode);
+      sendCodeChange(roomId, newCode, selectedLanguage);
     }
   };
 
@@ -167,6 +216,51 @@ const RoomEditor = () => {
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleRunCode = async () => {
+    if (!code.trim()) {
+      alert('Please write some code first!');
+      return;
+    }
+
+    setIsExecuting(true);
+    setShowOutput(true);
+    setOutput('Executing code...\n');
+    setExecutionError(null);
+
+    try {
+      const result = await compilerAPI.executeCode(code, selectedLanguage, stdin);
+      
+      if (result.success) {
+        const { output: codeOutput, statusCode, memory, cpuTime, error } = result.result;
+        
+        let formattedOutput = '';
+        
+        if (error) {
+          formattedOutput = `❌ Error:\n${error}\n`;
+          setExecutionError(error);
+        } else {
+          formattedOutput = `✅ Execution Successful\n\n`;
+          formattedOutput += `📤 Output:\n${codeOutput}\n\n`;
+          formattedOutput += `📊 Stats:\n`;
+          formattedOutput += `   • Status Code: ${statusCode}\n`;
+          formattedOutput += `   • Memory: ${memory} bytes\n`;
+          formattedOutput += `   • CPU Time: ${cpuTime}s\n`;
+        }
+        
+        setOutput(formattedOutput);
+      } else {
+        setOutput(`❌ Execution Failed:\n${result.error || 'Unknown error'}`);
+        setExecutionError(result.error);
+      }
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to execute code';
+      setOutput(`❌ Error:\n${errorMessage}`);
+      setExecutionError(errorMessage);
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
   const handleLeaveRoom = async () => {
@@ -319,14 +413,57 @@ const RoomEditor = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Code Editor */}
-        <div className="flex-1 flex flex-col p-4">
-          <div className="bg-white rounded-3xl shadow-xl border-4 border-gray-100 flex-1 flex flex-col overflow-hidden">
+        {/* Code Editor Section */}
+        <div className="flex-1 flex flex-col p-4 gap-4">
+          {/* Code Editor */}
+          <div className={`bg-white rounded-3xl shadow-xl border-4 border-gray-100 flex flex-col overflow-hidden transition-all ${
+            showOutput ? 'h-1/2' : 'flex-1'
+          }`}>
             <div className="flex items-center justify-between p-4 border-b-2 border-gray-100">
-              <div className="flex items-center gap-2">
-                <Code2 className="w-5 h-5 text-pink-500" />
-                <span className="font-bold text-gray-800">Code Editor</span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Code2 className="w-5 h-5 text-pink-500" />
+                  <span className="font-bold text-gray-800">Code Editor</span>
+                </div>
+                
+                {/* Language Selector */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
+                    className="flex items-center gap-2 bg-gradient-to-r from-orange-100 to-pink-100 px-4 py-2 rounded-xl font-semibold text-gray-700 hover:from-orange-200 hover:to-pink-200 transition"
+                  >
+                    <span className="capitalize">{selectedLanguage}</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  
+                  <AnimatePresence>
+                    {showLanguageDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute top-full mt-2 bg-white rounded-2xl shadow-2xl border-2 border-gray-200 p-2 z-50 max-h-64 overflow-y-auto w-48"
+                      >
+                        {supportedLanguages.map((lang) => (
+                          <button
+                            key={lang.id}
+                            onClick={() => {
+                              setSelectedLanguage(lang.id);
+                              setShowLanguageDropdown(false);
+                            }}
+                            className={`w-full text-left px-4 py-2 rounded-xl hover:bg-gradient-to-r hover:from-orange-100 hover:to-pink-100 transition capitalize ${
+                              selectedLanguage === lang.id ? 'bg-gradient-to-r from-orange-100 to-pink-100 font-semibold' : ''
+                            }`}
+                          >
+                            {lang.name}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
+              
               <div className="flex items-center gap-2">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -340,10 +477,21 @@ const RoomEditor = () => {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-2 bg-gradient-to-r from-orange-400 to-pink-400 text-white px-4 py-2 rounded-xl font-semibold"
+                  onClick={handleRunCode}
+                  disabled={isExecuting}
+                  className="flex items-center gap-2 bg-gradient-to-r from-orange-400 to-pink-400 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Play className="w-4 h-4" />
-                  Run
+                  {isExecuting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      Run Code
+                    </>
+                  )}
                 </motion.button>
               </div>
             </div>
@@ -353,10 +501,54 @@ const RoomEditor = () => {
               value={code}
               onChange={handleCodeChange}
               className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none bg-gray-50"
-              placeholder="Start coding..."
+              placeholder={`// Start coding in ${selectedLanguage}...\n`}
               spellCheck="false"
             />
           </div>
+
+          {/* Output Panel */}
+          <AnimatePresence>
+            {showOutput && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="bg-white rounded-3xl shadow-xl border-4 border-gray-100 flex-1 flex flex-col overflow-hidden"
+              >
+                <div className="flex items-center justify-between p-4 border-b-2 border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-green-500" />
+                    <span className="font-bold text-gray-800">Output</span>
+                  </div>
+                  <button
+                    onClick={() => setShowOutput(false)}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {/* Input Section */}
+                <div className="px-6 py-3 border-b-2 border-gray-100">
+                  <label className="text-xs font-semibold text-gray-600 mb-2 block">Input (stdin):</label>
+                  <input
+                    type="text"
+                    value={stdin}
+                    onChange={(e) => setStdin(e.target.value)}
+                    placeholder="Enter input for your program..."
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                  />
+                </div>
+                
+                <div
+                  ref={outputRef}
+                  className="flex-1 p-6 font-mono text-sm bg-gray-900 text-green-400 overflow-y-auto whitespace-pre-wrap"
+                >
+                  {output || 'Click "Run Code" to see output...'}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Chat Sidebar - Always visible when showChat is true */}
@@ -424,12 +616,18 @@ const RoomEditor = () => {
               </div>
 
               {/* Message Input */}
-              <form onSubmit={handleSendMessage} className="p-4 border-t-2 border-gray-100">
+              <div className="p-4 border-t-2 border-gray-100">
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={messageInput}
                     onChange={(e) => setMessageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage(e);
+                      }
+                    }}
                     placeholder={connected ? "Type a message..." : "Connecting..."}
                     disabled={!connected}
                     className="flex-1 bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-pink-400 disabled:opacity-50"
@@ -437,14 +635,15 @@ const RoomEditor = () => {
                   <motion.button
                     whileHover={{ scale: connected ? 1.05 : 1 }}
                     whileTap={{ scale: connected ? 0.95 : 1 }}
-                    type="submit"
+                    type="button"
+                    onClick={handleSendMessage}
                     disabled={!connected}
                     className="bg-gradient-to-r from-orange-400 to-pink-400 text-white p-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Send className="w-5 h-5" />
                   </motion.button>
                 </div>
-              </form>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -64,4 +64,15 @@ export const roomAPI = {
   },
 };
 
+export const compilerAPI = {
+  executeCode: async (code, language, stdin = '') => {
+    const response = await api.post('/compiler/execute', { code, language, stdin });
+    return response.data;
+  },
+  getSupportedLanguages: async () => {
+    const response = await api.get('/compiler/languages');
+    return response.data;
+  },
+};
+
 export default api;
