@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -14,7 +14,21 @@ const RoomEditor = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { socket, connected, joinRoom, leaveRoom, sendMessage, sendCodeChange, endRoom, requestCodeExecution, respondToCodeExecution, cancelCodeExecution, markCodeExecutionCompleted } = useSocket();
+  const { 
+    socket, 
+    connected, 
+    joinRoom, 
+    leaveRoom, 
+    sendMessage, 
+    sendCodeChange, 
+    endRoom, 
+    requestCodeExecution, 
+    respondToCodeExecution, 
+    cancelCodeExecution, 
+    markCodeExecutionCompleted,
+    sendStdinChange,
+    sendOutputChange
+  } = useSocket();
   
   const [room, setRoom] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +63,7 @@ const RoomEditor = () => {
   const hasJoinedRef = useRef(false);
   const outputRef = useRef(null);
 
-  const fetchRoom = async () => {
+  const fetchRoom = useCallback(async () => {
     try {
       const response = await roomAPI.getRoom(roomId);
       setRoom(response.data);
@@ -59,30 +73,31 @@ const RoomEditor = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roomId, navigate]);
 
-  const fetchSupportedLanguages = async () => {
+  const fetchSupportedLanguages = useCallback(async () => {
     try {
       const response = await compilerAPI.getSupportedLanguages();
       setSupportedLanguages(response.languages);
     } catch (error) {
       console.error('Error fetching languages:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchRoom();
     fetchSupportedLanguages();
-    
+  }, [fetchRoom, fetchSupportedLanguages]);
+
+  // Separate cleanup effect with proper dependencies
+  useEffect(() => {
     return () => {
-      // Cleanup when component unmounts
       if (hasJoinedRef.current && roomId) {
         leaveRoom(roomId);
         hasJoinedRef.current = false;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+  }, [roomId, leaveRoom]);
 
   useEffect(() => {
     // Only join if socket is ready, room is loaded, and not already joined
@@ -105,6 +120,17 @@ const RoomEditor = () => {
           // Load saved language
           if (response.language) {
             setSelectedLanguage(response.language);
+          }
+          
+          // Load saved stdin
+          if (response.stdin) {
+            setStdin(response.stdin);
+          }
+          
+          // Load saved output
+          if (response.output) {
+            setOutput(response.output);
+            setShowOutput(response.showOutput || false);
           }
           
           // Load saved messages from database
@@ -133,8 +159,65 @@ const RoomEditor = () => {
         }
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, room, connected, joined, roomId]);
+  }, [socket, room, connected, joined, roomId, joinRoom, navigate]);
+
+  // Create stable function for executeCodeDirectly using useCallback
+  const executeCodeDirectly = useCallback(async (codeToExecute, lang, input) => {
+    setIsExecuting(true);
+    setShowOutput(true);
+    setOutput('Executing code...\n');
+    setExecutionError(null);
+
+    // Broadcast that output panel is being shown
+    sendOutputChange(roomId, 'Executing code...\n', true);
+
+    try {
+      const result = await compilerAPI.executeCode(codeToExecute, lang, input);
+      
+      if (result.success) {
+        const { output: codeOutput, statusCode, memory, cpuTime, error } = result.result;
+        
+        let formattedOutput = '';
+        
+        if (error) {
+          formattedOutput = `❌ Error:\n${error}\n`;
+          setExecutionError(error);
+        } else {
+          formattedOutput = `✅ Execution Successful\n\n`;
+          formattedOutput += `📤 Output:\n${codeOutput}\n\n`;
+          formattedOutput += `📊 Stats:\n`;
+          formattedOutput += `   • Status Code: ${statusCode}\n`;
+          formattedOutput += `   • Memory: ${memory} bytes\n`;
+          formattedOutput += `   • CPU Time: ${cpuTime}s\n`;
+        }
+        
+        setOutput(formattedOutput);
+        
+        // Broadcast output to all users
+        sendOutputChange(roomId, formattedOutput, true);
+        
+        // Mark execution as completed
+        markCodeExecutionCompleted(roomId);
+      } else {
+        const errorOutput = `❌ Execution Failed:\n${result.error || 'Unknown error'}`;
+        setOutput(errorOutput);
+        setExecutionError(result.error);
+        
+        // Broadcast error to all users
+        sendOutputChange(roomId, errorOutput, true);
+      }
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to execute code';
+      const errorOutput = `❌ Error:\n${errorMessage}`;
+      setOutput(errorOutput);
+      setExecutionError(errorMessage);
+      
+      // Broadcast error to all users
+      sendOutputChange(roomId, errorOutput, true);
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [roomId, markCodeExecutionCompleted, sendOutputChange]);
 
   useEffect(() => {
     if (!socket) return;
@@ -195,7 +278,7 @@ const RoomEditor = () => {
       console.log('✅ Code execution approved');
       
       // If current user is the requester, execute the code
-      if (data.requestedBy.toString() === user?.id) {
+      if (user && data.requestedBy.toString() === user.id) {
         setWaitingForApproval(false);
         executeCodeDirectly(data.code, data.language, data.stdin);
       }
@@ -224,6 +307,19 @@ const RoomEditor = () => {
       setApprovalProgress(null);
     };
 
+    // Listen for stdin updates
+    const handleStdinUpdate = (data) => {
+      console.log('⌨️ Stdin updated by:', data.username);
+      setStdin(data.stdin);
+    };
+
+    // Listen for output updates
+    const handleOutputUpdate = (data) => {
+      console.log('📺 Output updated by:', data.username);
+      setOutput(data.output);
+      setShowOutput(data.showOutput);
+    };
+
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
     socket.on('receive-message', handleReceiveMessage);
@@ -234,6 +330,8 @@ const RoomEditor = () => {
     socket.on('code-execution-rejected', handleCodeExecutionRejected);
     socket.on('code-execution-approval-progress', handleApprovalProgress);
     socket.on('code-execution-cancelled', handleCodeExecutionCancelled);
+    socket.on('stdin-update', handleStdinUpdate);
+    socket.on('output-update', handleOutputUpdate);
 
     return () => {
       socket.off('user-joined', handleUserJoined);
@@ -246,8 +344,10 @@ const RoomEditor = () => {
       socket.off('code-execution-rejected', handleCodeExecutionRejected);
       socket.off('code-execution-approval-progress', handleApprovalProgress);
       socket.off('code-execution-cancelled', handleCodeExecutionCancelled);
+      socket.off('stdin-update', handleStdinUpdate);
+      socket.off('output-update', handleOutputUpdate);
     };
-  }, [socket, navigate, user]);
+  }, [socket, navigate, user, executeCodeDirectly]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -258,6 +358,14 @@ const RoomEditor = () => {
     setCode(newCode);
     if (connected) {
       sendCodeChange(roomId, newCode, selectedLanguage);
+    }
+  };
+
+  const handleStdinChange = (e) => {
+    const newStdin = e.target.value;
+    setStdin(newStdin);
+    if (connected) {
+      sendStdinChange(roomId, newStdin);
     }
   };
 
@@ -275,54 +383,14 @@ const RoomEditor = () => {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const executeCodeDirectly = async (codeToExecute, lang, input) => {
-    setIsExecuting(true);
-    setShowOutput(true);
-    setOutput('Executing code...\n');
-    setExecutionError(null);
-
-    try {
-      const result = await compilerAPI.executeCode(codeToExecute, lang, input);
-      
-      if (result.success) {
-        const { output: codeOutput, statusCode, memory, cpuTime, error } = result.result;
-        
-        let formattedOutput = '';
-        
-        if (error) {
-          formattedOutput = `❌ Error:\n${error}\n`;
-          setExecutionError(error);
-        } else {
-          formattedOutput = `✅ Execution Successful\n\n`;
-          formattedOutput += `📤 Output:\n${codeOutput}\n\n`;
-          formattedOutput += `📊 Stats:\n`;
-          formattedOutput += `   • Status Code: ${statusCode}\n`;
-          formattedOutput += `   • Memory: ${memory} bytes\n`;
-          formattedOutput += `   • CPU Time: ${cpuTime}s\n`;
-        }
-        
-        setOutput(formattedOutput);
-        
-        // Mark execution as completed
-        markCodeExecutionCompleted(roomId);
-      } else {
-        setOutput(`❌ Execution Failed:\n${result.error || 'Unknown error'}`);
-        setExecutionError(result.error);
-      }
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || error.message || 'Failed to execute code';
-      setOutput(`❌ Error:\n${errorMessage}`);
-      setExecutionError(errorMessage);
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
   const handleRunCode = async () => {
     if (!code.trim()) {
       alert('Please write some code first!');
       return;
     }
+
+    // Show output panel first
+    setShowOutput(true);
 
     // Request approval from other participants
     setWaitingForApproval(true);
@@ -608,6 +676,7 @@ const RoomEditor = () => {
               </div>
             </div>
             
+            {/* Code Textarea */}
             <textarea
               ref={codeEditorRef}
               value={code}
@@ -616,6 +685,21 @@ const RoomEditor = () => {
               placeholder={`// Start coding in ${selectedLanguage}...\n`}
               spellCheck="false"
             />
+
+            {/* Stdin Input Section - Always Visible */}
+            <div className="px-6 py-4 border-t-2 border-gray-100 bg-blue-50">
+              <label className="block text-gray-800 mb-2 font-bold flex items-center gap-2 text-sm">
+                <Terminal className="w-4 h-4 text-blue-600" />
+                Program Input (stdin) - Optional
+              </label>
+              <textarea
+                value={stdin}
+                onChange={handleStdinChange}
+                placeholder="Enter input for your program (each line = separate input)"
+                className="w-full bg-white border-2 border-blue-200 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono text-sm resize-none"
+                rows="2"
+              />
+            </div>
           </div>
 
           {/* Output Panel */}
@@ -640,18 +724,7 @@ const RoomEditor = () => {
                   </button>
                 </div>
                 
-                {/* Input Section */}
-                <div className="px-6 py-3 border-b-2 border-gray-100">
-                  <label className="text-xs font-semibold text-gray-600 mb-2 block">Input (stdin):</label>
-                  <input
-                    type="text"
-                    value={stdin}
-                    onChange={(e) => setStdin(e.target.value)}
-                    placeholder="Enter input for your program..."
-                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
-                  />
-                </div>
-                
+                {/* Output Display */}
                 <div
                   ref={outputRef}
                   className="flex-1 p-6 font-mono text-sm bg-gray-900 text-green-400 overflow-y-auto whitespace-pre-wrap"
@@ -663,7 +736,7 @@ const RoomEditor = () => {
           </AnimatePresence>
         </div>
 
-        {/* Chat Sidebar - Always visible when showChat is true */}
+        {/* Chat Sidebar */}
         <AnimatePresence>
           {showChat && (
             <motion.div
@@ -845,4 +918,3 @@ const RoomEditor = () => {
 };
 
 export default RoomEditor;
-//hello

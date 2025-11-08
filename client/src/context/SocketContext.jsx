@@ -188,6 +188,18 @@ export const SocketProvider = ({ children }) => {
     }
   };
 
+  const sendStdinChange = (roomId, stdin) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('stdin-change', { roomId, stdin });
+    }
+  };
+
+  const sendOutputChange = (roomId, output, showOutput) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('output-change', { roomId, output, showOutput });
+    }
+  };
+
   return (
     <SocketContext.Provider value={{
       socket,
@@ -201,7 +213,9 @@ export const SocketProvider = ({ children }) => {
       requestCodeExecution,
       respondToCodeExecution,
       cancelCodeExecution,
-      markCodeExecutionCompleted
+      markCodeExecutionCompleted,
+      sendStdinChange,
+      sendOutputChange
     }}>
       {children}
     </SocketContext.Provider>

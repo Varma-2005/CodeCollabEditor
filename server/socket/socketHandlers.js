@@ -425,6 +425,39 @@ const socketHandlers = (io) => {
       }
     });
 
+    // Sync stdin input across all users
+    socket.on('stdin-change', async ({ roomId, stdin }) => {
+      try {
+        // Broadcast stdin change to all other users in the room
+        socket.to(roomId).emit('stdin-update', {
+          stdin,
+          userId: socket.user._id,
+          username: socket.user.username
+        });
+
+        console.log(`⌨️ Stdin updated in room ${roomId} by ${socket.user.username}`);
+      } catch (error) {
+        console.error('Stdin change error:', error);
+      }
+    });
+
+    // Sync output across all users
+    socket.on('output-change', async ({ roomId, output, showOutput }) => {
+      try {
+        // Broadcast output to all other users in the room
+        socket.to(roomId).emit('output-update', {
+          output,
+          showOutput,
+          userId: socket.user._id,
+          username: socket.user.username
+        });
+
+        console.log(`📺 Output updated in room ${roomId} by ${socket.user.username}`);
+      } catch (error) {
+        console.error('Output change error:', error);
+      }
+    });
+
     // End room (creator only)
     socket.on('end-room', async ({ roomId }, callback) => {
       try {

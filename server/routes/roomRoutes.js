@@ -66,6 +66,31 @@ router.get('/', protect, asyncHandler(async (req, res) => {
   });
 }));
 
+// @route   GET /api/rooms/code/:roomCode
+// @desc    Get room by room code
+// @access  Private
+// IMPORTANT: This must come BEFORE /api/rooms/:id route
+router.get('/code/:roomCode', protect, asyncHandler(async (req, res) => {
+  console.log('🔍 Looking for room with code:', req.params.roomCode);
+  
+  const room = await Room.findOne({ roomCode: req.params.roomCode.toUpperCase() })
+    .populate('creator', 'username email')
+    .populate('members.user', 'username email');
+
+  if (!room) {
+    console.log('❌ Room not found with code:', req.params.roomCode);
+    res.status(404);
+    throw new Error('Room not found');
+  }
+
+  console.log('✅ Found room:', room.name);
+
+  res.json({
+    success: true,
+    data: room
+  });
+}));
+
 // @route   GET /api/rooms/:id
 // @desc    Get single room by ID
 // @access  Private
